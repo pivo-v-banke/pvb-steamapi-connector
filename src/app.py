@@ -2,20 +2,29 @@ from contextlib import asynccontextmanager
 from logging.config import dictConfig
 
 from fastapi import FastAPI
+from gevent.lock import Semaphore
 
 from conf.logging import LOGGING_CONFIG
 from conf.secret import API_SECRET_KEY, API_SECRET_KEY_REQUIRED
 from middlewares import APIKeyMiddleware, ExceptionMiddleware
 from routes import prepare_routes
 
-from components.steam.steam import SteamAPI, SteamAPIException, steam_api
+from components.steam.steam import SteamAPI, SteamAPIException
 
+
+@asynccontextmanager
+async def lifespan(app_: FastAPI):
+    steam_api = SteamAPI()
+    steam_api.connect()
+    steam_api.gc_lock = Semaphore(1)
+    app_.state.steam_api = steam_api
+    yield
+    steam_api.disconnect()
 
 def prepare_app() -> FastAPI:
     dictConfig(LOGGING_CONFIG)
 
-    fastapi_app = FastAPI()
-    steam_api.connect()
+    fastapi_app = FastAPI(lifespan=lifespan)
 
     fastapi_app.add_middleware(
         APIKeyMiddleware,
